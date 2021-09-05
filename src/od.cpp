@@ -1,7 +1,5 @@
-#include <utility>
-
-#include "io.h"
 #include "od.h"
+#include "io.h"
 
 std::vector<torch::Tensor> od::nonMaxSuppression(
     torch::Tensor& preds, float scoreThresh, float iouThresh)
@@ -97,15 +95,11 @@ void od::setup(
     }
 }
 
-std::vector<std::pair<cv::Rect, std::vector<std::string>>> od::detect(const int& h, const int& w, uint8_t* bgraData,
+std::vector<object_t> od::detect(const int& h, const int& w, uint8_t* bgraData,
     std::vector<std::string>& classnames, torch::jit::script::Module& module,
     std::shared_ptr<i3d>& sptr_i3d)
 {
-    std::vector<std::string> labelInfo(2);
-    std::pair<cv::Rect, std::vector<std::string>> detectedObject;
-    std::vector<std::pair<cv::Rect, std::vector<std::string>>> results;
-
-    clock_t start = clock();
+    std::vector<object_t> objects;
 
     cv::Mat frame, frameResized;
     frame = cv::Mat(h, w, CV_8UC4, (void*)bgraData, cv::Mat::AUTO_STEP).clone();
@@ -124,7 +118,6 @@ std::vector<std::pair<cv::Rect, std::vector<std::string>>> od::detect(const int&
         = module.forward({ imgTensor }).toTuple()->elements()[0].toTensor();
     std::vector<torch::Tensor> dets = od::nonMaxSuppression(preds, 0.4, 0.5);
 
-    // show detected objects
     if (!dets.empty()) {
         for (int64_t i = 0; i < dets[0].sizes()[0]; ++i) {
             auto left = (int)(dets[0][i][0].item().toFloat() * (float)frame.cols
@@ -138,38 +131,25 @@ std::vector<std::pair<cv::Rect, std::vector<std::string>>> od::detect(const int&
             float score = dets[0][i][4].item().toFloat();
             int classID = dets[0][i][5].item().toInt();
 
-            // get bounding box, class name, and confidence
-            cv::Rect boundingBox = cv::Rect(left, top, (right - left), (bottom - top));
+            // get bounding box, class name, confidence, and label
             std::string classname = classnames[classID];
             std::string confidence = cv::format("%.2f", score);
-
-            labelInfo[0] = classname;
-            labelInfo[1] = confidence;
-            detectedObject.first = boundingBox;
-            detectedObject.second = labelInfo;
-            results.emplace_back(detectedObject);
-
-            // use class name and confidence as label
             std::string label = classname.append(" : ").append(confidence);
 
-            // set bounding regions to show
-            cv::rectangle(frame, boundingBox, cv::Scalar(0, 255, 0), 1);
+            object_t object;
 
-            // set detected object class name and confidence to show
-            cv::putText(frame, label, cv::Point(left, top), cv::FONT_HERSHEY_SIMPLEX, (double)(right - left) / 200, cv::Scalar(0, 255, 0), 1);
+            object.m_image = frame;
+            object.m_imageHeight = bottom - top;
+            object.m_imageWidth = right - left;
+
+            object.m_label = label;
+            object.m_classname = classname;
+            object.m_confidence = confidence;
+            object.m_boundingBox = cv::Rect(left, top, (right - left), (bottom - top));
+            object.m_boundingBoxOrigin = cv::Point(left, top);
+
+            objects.emplace_back(object);
         }
     }
-
-    // set FPS to show
-    cv::putText(frame,
-        "FPS: " + std::to_string(int(1e7 / (double)(clock() - start))),
-        cv::Point(50, 50), cv::FONT_HERSHEY_SIMPLEX, 1, cv::Scalar(0, 255, 0),
-        2);
-
-    // show image frame with bounding region, class name, confidence and FPS
-    cv::imshow("i3d", frame);
-    if (cv::waitKey(1) == 27) {
-        sptr_i3d->stop();
-    }
-    return results;
+    return objects;
 }
