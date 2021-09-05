@@ -1,8 +1,10 @@
-#include "od.h"
+#include <utility>
+
 #include "io.h"
+#include "od.h"
 
 std::vector<torch::Tensor> od::nonMaxSuppression(
-        torch::Tensor& preds, float scoreThresh, float iouThresh)
+    torch::Tensor& preds, float scoreThresh, float iouThresh)
 {
     std::vector<torch::Tensor> output;
     for (int64_t i = 0; i < preds.sizes()[0]; ++i) {
@@ -75,7 +77,7 @@ std::vector<torch::Tensor> od::nonMaxSuppression(
                         areas, 0, indexes.slice(0, 1, indexes.sizes()[0]))
                     - overlaps);
             indexes = torch::index_select(indexes, 0,
-                                          torch::nonzero(iou <= iouThresh).select(1, 0) + 1);
+                torch::nonzero(iou <= iouThresh).select(1, 0) + 1);
         }
         keep = keep.toType(torch::kInt64);
         output.push_back(torch::index_select(dets, 0, keep.slice(0, 0, count)));
@@ -95,10 +97,14 @@ void od::setup(
     }
 }
 
-void od::detect(const int& h, const int& w, uint8_t* bgraData,
+std::vector<std::pair<cv::Rect, std::vector<std::string>>> od::detect(const int& h, const int& w, uint8_t* bgraData,
     std::vector<std::string>& classnames, torch::jit::script::Module& module,
     std::shared_ptr<i3d>& sptr_i3d)
 {
+    std::vector<std::string> labelInfo(2);
+    std::pair<cv::Rect, std::vector<std::string>> detectedObject;
+    std::vector<std::pair<cv::Rect, std::vector<std::string>>> results;
+
     clock_t start = clock();
 
     cv::Mat frame, frameResized;
@@ -132,19 +138,25 @@ void od::detect(const int& h, const int& w, uint8_t* bgraData,
             float score = dets[0][i][4].item().toFloat();
             int classID = dets[0][i][5].item().toInt();
 
-            // get detected object boundary
-            //cv::Rect boundary =
+            // get bounding box, class name, and confidence
+            cv::Rect boundingBox = cv::Rect(left, top, (right - left), (bottom - top));
+            std::string classname = classnames[classID];
+            std::string confidence = cv::format("%.2f", score);
+
+            labelInfo[0] = classname;
+            labelInfo[1] = confidence;
+            detectedObject.first = boundingBox;
+            detectedObject.second = labelInfo;
+            results.emplace_back(detectedObject);
+
+            // use class name and confidence as label
+            std::string label = classname.append(" : ").append(confidence);
 
             // set bounding regions to show
-            cv::rectangle(frame,
-                cv::Rect(left, top, (right - left), (bottom - top)),
-                cv::Scalar(0, 255, 0), 1);
+            cv::rectangle(frame, boundingBox, cv::Scalar(0, 255, 0), 1);
 
             // set detected object class name and confidence to show
-            cv::putText(frame,
-                classnames[classID] + ": " + cv::format("%.2f", score),
-                cv::Point(left, top), cv::FONT_HERSHEY_SIMPLEX,
-                (double)(right - left) / 200, cv::Scalar(0, 255, 0), 1);
+            cv::putText(frame, label, cv::Point(left, top), cv::FONT_HERSHEY_SIMPLEX, (double)(right - left) / 200, cv::Scalar(0, 255, 0), 1);
         }
     }
 
@@ -159,4 +171,5 @@ void od::detect(const int& h, const int& w, uint8_t* bgraData,
     if (cv::waitKey(1) == 27) {
         sptr_i3d->stop();
     }
+    return results;
 }
