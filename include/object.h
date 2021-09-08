@@ -9,9 +9,9 @@ struct object_t {
     int m_imageHeight;
     int m_imageWidth;
     std::string m_label;
-    cv::Rect m_boundingBox;
+    cv::Rect m_bbox;
     std::string m_classname;
     std::string m_confidence;
-    cv::Point m_boundingBoxOrigin; // bottom left corner
+    cv::Point m_bboxOrigin; // bottom left corner
 };
 #endif //OBJECT_H
