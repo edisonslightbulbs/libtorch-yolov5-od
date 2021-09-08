@@ -95,20 +95,18 @@ void od::setup(
     }
 }
 
-std::vector<object_t> od::detect(const int& h, const int& w, uint8_t* bgraData,
+std::vector<object_t> od::detect(const int& h, const int& w, cv::Mat& frame,
     std::vector<std::string>& classnames, torch::jit::script::Module& module,
     std::shared_ptr<i3d>& sptr_i3d)
 {
     std::vector<object_t> objects;
-
-    cv::Mat frame, frameResized;
-    frame = cv::Mat(h, w, CV_8UC4, (void*)bgraData, cv::Mat::AUTO_STEP).clone();
+    cv::Mat frameCopy;
 
     // format frame for tensor input
-    cv::resize(frame, frameResized, cv::Size(640, 640));
-    cv::cvtColor(frameResized, frameResized, cv::COLOR_BGR2RGB);
-    torch::Tensor imgTensor = torch::from_blob(frameResized.data,
-        { frameResized.rows, frameResized.cols, 3 }, torch::kByte);
+    cv::resize(frame, frameCopy, cv::Size(640, 640));
+    cv::cvtColor(frameCopy, frameCopy, cv::COLOR_BGR2RGB);
+    torch::Tensor imgTensor = torch::from_blob(frameCopy.data,
+        { frameCopy.rows, frameCopy.cols, 3 }, torch::kByte);
     imgTensor = imgTensor.permute({ 2, 0, 1 });
     imgTensor = imgTensor.toType(torch::kFloat);
     imgTensor = imgTensor.div(255);
@@ -145,8 +143,8 @@ std::vector<object_t> od::detect(const int& h, const int& w, uint8_t* bgraData,
             object.m_label = label;
             object.m_classname = classname;
             object.m_confidence = confidence;
-            object.m_boundingBox = cv::Rect(left, top, (right - left), (bottom - top));
-            object.m_boundingBoxOrigin = cv::Point(left, top);
+            object.m_bbox = cv::Rect(left, top, (right - left), (bottom - top));
+            object.m_bboxOrigin = cv::Point(left, top);
 
             objects.emplace_back(object);
         }
